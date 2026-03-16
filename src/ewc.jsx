@@ -398,17 +398,17 @@ export default function App() {
                   onError={() => handleWarriorImageError(warrior.id)}
                   referrerPolicy="no-referrer"
                   loading="lazy"
-                  className={`w-full h-full transition-all duration-700 ${isFallbackPhoto(warrior) ? 'object-contain p-10 bg-black/90 filter-none group-hover:scale-105' : 'object-cover filter grayscale group-hover:grayscale-0 group-hover:scale-105'}`}
+                  className={`w-full h-full transition-all duration-700 ${isFallbackPhoto(warrior) ? 'object-contain p-10 bg-black/90 filter-none group-hover:scale-105' : 'object-cover filter grayscale-[35%] saturate-75 brightness-90 group-hover:grayscale-0 group-hover:saturate-100 group-hover:brightness-100 group-hover:scale-105'}`}
                 />
                 <div className="absolute top-4 right-4 z-20 bg-zinc-950/80 backdrop-blur border border-zinc-700 px-3 py-1 rounded text-xs font-mono text-zinc-300">
                   #{warrior.sequenceNumber}
                 </div>
               </div>
               
-              <div className="p-5 border-t border-zinc-800">
+              <div className="relative min-h-[9.5rem] p-5 border-t border-zinc-800 overflow-hidden">
                 <h3 className="text-xl font-bold text-zinc-100 uppercase tracking-wide">{warrior.fullName}</h3>
                 <p className="text-red-600/80 text-sm tracking-widest uppercase mt-1">"{warrior.warriorName}"</p>
-                <div className="mt-4 h-0 opacity-0 group-hover:h-auto group-hover:opacity-100 group-hover:mt-4 transition-all duration-500 overflow-hidden">
+                <div className="absolute inset-x-5 bottom-5 rounded-md bg-zinc-900/96 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-400 pointer-events-none">
                   <p className="text-zinc-400 text-sm line-clamp-2 italic">"{warrior.biggestLearning}"</p>
                 </div>
               </div>
