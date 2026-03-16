@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronRight, X, MapPin, Briefcase, Quote, Instagram, Linkedin, Facebook, Shield, Swords, Sparkles } from 'lucide-react';
+import { ChevronRight, X, MapPin, Briefcase, Quote, Instagram, Linkedin, Facebook, Shield, Swords, Sparkles, Compass, Wind, Flame, Bird, Star, Sun, Zap, Crown } from 'lucide-react';
 
 const parseHashRoute = (hash) => {
   const segments = hash
@@ -39,6 +39,27 @@ const routeSignature = (route) => `${route.view}::${route.tribe || ''}::${route.
 const EXIT_DURATION_MS = 1100;
 const ENTER_DURATION_MS = 1900;
 const FALLBACK_PHOTO = '/logo.png';
+
+const tribeVisuals = {
+  'Destiny Warrior': { icon: Compass, accentClass: 'group-hover:text-amber-400' },
+  'Flying Dragon': { icon: Wind, accentClass: 'group-hover:text-sky-400' },
+  Phoenix: { icon: Flame, accentClass: 'group-hover:text-orange-400' },
+  'Rising Eagles': { icon: Bird, accentClass: 'group-hover:text-stone-200' },
+  'Rising Stars': { icon: Star, accentClass: 'group-hover:text-yellow-300' },
+  'Rising Sun': { icon: Sun, accentClass: 'group-hover:text-red-400' },
+  'Unstoppable Power': { icon: Zap, accentClass: 'group-hover:text-fuchsia-300' },
+  'Golden Warrior': { icon: Crown, accentClass: 'group-hover:text-yellow-400' },
+};
+
+const getTribeVisual = (tribe) => tribeVisuals[tribe] || { icon: Shield, accentClass: 'group-hover:text-red-600' };
+
+const buildTribeRows = (tribes) => {
+  if (tribes.length === 8) {
+    return [tribes.slice(0, 3), tribes.slice(3, 5), tribes.slice(5, 8)];
+  }
+
+  return [tribes];
+};
 
 const shouldAnimateRouteTransition = (currentRoute, nextRoute) => {
   const isModalOnlyChange =
@@ -323,7 +344,7 @@ export default function App() {
   );
 
   const renderTribes = () => (
-    <div className="min-h-screen pt-24 pb-16 px-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+    <div className="min-h-screen pt-24 pb-16 px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
         <div className="w-24 h-1 bg-red-800 mx-auto opacity-50"></div>
@@ -338,27 +359,70 @@ export default function App() {
       )}
 
       {!isFetchingWarriors && !fetchError && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {tribes.map((tribe) => {
-          const count = warriorsData.filter(w => w.tribe === tribe).length;
-          return (
-            <div 
-              key={tribe}
-              onClick={() => navigateToTribe(tribe)}
-              className="group relative bg-zinc-900 border border-zinc-800 p-8 rounded-lg cursor-pointer hover:border-red-800 hover:-translate-y-2 transition-all duration-500 overflow-hidden"
-            >
-              {/* Background gradient on hover */}
-              <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-              
-              <div className="relative z-10 flex flex-col items-center text-center space-y-4">
-                <Shield className="w-12 h-12 text-zinc-700 group-hover:text-red-600 transition-colors duration-500" />
-                <h3 className="text-2xl font-bold text-zinc-200 tracking-wider uppercase">{tribe}</h3>
-                <p className="text-zinc-500 tracking-widest text-sm">{count} Warriors</p>
+        <>
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 xl:hidden">
+            {tribes.map((tribe) => {
+              const count = warriorsData.filter(w => w.tribe === tribe).length;
+              const { icon: TribeIcon, accentClass } = getTribeVisual(tribe);
+
+              return (
+                <div 
+                  key={tribe}
+                  onClick={() => navigateToTribe(tribe)}
+                  className="group relative min-h-[17rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)]"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500/50 to-transparent opacity-60"></div>
+                  <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-red-950/20 blur-3xl transition-opacity duration-500 group-hover:opacity-100"></div>
+                  
+                  <div className="relative z-10 flex h-full flex-col items-center justify-center text-center space-y-4">
+                    <TribeIcon className={`h-12 w-12 text-zinc-700 transition-colors duration-500 ${accentClass}`} />
+                    <h3 className="text-2xl font-bold text-zinc-200 tracking-wider uppercase">{tribe}</h3>
+                    <p className="text-zinc-500 tracking-[0.3em] text-xs uppercase">{count} Warriors</p>
+                    <div className="pt-3 text-[0.65rem] uppercase tracking-[0.45em] text-zinc-600 transition-colors duration-500 group-hover:text-zinc-400">
+                      Enter Tribe
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mx-auto hidden max-w-6xl xl:flex xl:flex-col xl:gap-6">
+            {buildTribeRows(tribes).map((row, rowIndex) => (
+              <div
+                key={`tribe-row-${rowIndex}`}
+                className={`flex justify-center gap-6 ${row.length === 2 ? 'px-28' : ''}`}
+              >
+                {row.map((tribe) => {
+                  const count = warriorsData.filter(w => w.tribe === tribe).length;
+                  const { icon: TribeIcon, accentClass } = getTribeVisual(tribe);
+
+                  return (
+                    <div 
+                      key={tribe}
+                      onClick={() => navigateToTribe(tribe)}
+                      className={`group relative min-h-[18rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)] ${row.length === 2 ? 'w-[22rem]' : 'w-[18rem]'}`}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500/50 to-transparent opacity-60"></div>
+                      <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-red-950/20 blur-3xl transition-opacity duration-500 group-hover:opacity-100"></div>
+                      
+                      <div className="relative z-10 flex h-full flex-col items-center justify-center text-center space-y-4">
+                        <TribeIcon className={`h-12 w-12 text-zinc-700 transition-colors duration-500 ${accentClass}`} />
+                        <h3 className="text-2xl font-bold text-zinc-200 tracking-wider uppercase">{tribe}</h3>
+                        <p className="text-zinc-500 tracking-[0.3em] text-xs uppercase">{count} Warriors</p>
+                        <div className="pt-3 text-[0.65rem] uppercase tracking-[0.45em] text-zinc-600 transition-colors duration-500 group-hover:text-zinc-400">
+                          Enter Tribe
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          );
-        })}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
