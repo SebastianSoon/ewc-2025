@@ -323,7 +323,7 @@ export default function App() {
   );
 
   const renderTribes = () => (
-    <div className="min-h-screen pt-24 px-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+    <div className="min-h-screen pt-24 pb-16 px-6 max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
         <div className="w-24 h-1 bg-red-800 mx-auto opacity-50"></div>
