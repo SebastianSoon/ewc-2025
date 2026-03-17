@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronRight, X, MapPin, Briefcase, Quote, Instagram, Linkedin, Facebook, Shield, Swords, Sparkles, Compass, Wind, Flame, Bird, Star, Sun, Zap, Crown, Volume2, VolumeX } from 'lucide-react';
+import { convertWorkbookArrayBuffer } from '../scripts/convert-ewc.js';
 
 const parseHashRoute = (hash) => {
   const segments = hash
@@ -63,8 +64,23 @@ const NATION_CARD_EXIT_MS = 220;
 const NATION_CARD_ENTER_MS = 520;
 const NATION_CARD_STAGGER_MS = 45;
 const NATION_CARD_MAX_STAGGER_MS = 240;
+const LOADING_SCREEN_EXIT_MS = 520;
 const FALLBACK_PHOTO = '/ewc2025logo.jpg';
-const WARRIOR_PHRASES = ['act in spite of fear', 'act inspite of fear'];
+const GOOGLE_SHEET_XLSX_URL = 'https://docs.google.com/spreadsheets/d/1kt7QLwYrI2_tiuQ1dkr-llc2UQ8BBVSBvDIryJicmLY/export?format=xlsx&gid=1443822086';
+const WARRIOR_PHRASES = [
+  'act in spite of fear',
+  'act inspite of fear',
+  'am willing to do whatever it takes',
+  'do everything at one hundred percent',
+  'one hundred percent',
+  'am willing to do what\'s hard',
+  'do what\'s hard',
+  'act in spite of my mood',
+  'act inspite of my mood',
+  'am bigger than any obstacle',
+  'succeed in spite of anything',
+  'never give up',
+];
 const STONE_SFX_VOLUME = 0.3;
 const DUNGEON_SFX_VOLUME = 0.3;
 const SFX_RETRIGGER_GAP_MS = 120;
@@ -214,6 +230,8 @@ const normalizeDetailList = (listValue, fallbackValue) => {
 
 const normalizeWarriorPhrase = (value) => value
   .toLowerCase()
+  .replace(/100/g, 'one hundred')
+  .replace(/%/g, ' percent ')
   .replace(/[^a-z\s]/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
@@ -253,6 +271,8 @@ export default function App() {
   const [nationCardsPhase, setNationCardsPhase] = useState('idle');
   const [isWelcomingWarrior, setIsWelcomingWarrior] = useState(false);
   const [welcomePhase, setWelcomePhase] = useState('idle');
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const [loadingScreenPhase, setLoadingScreenPhase] = useState('visible');
   const [hasUnlockedApp, setHasUnlockedApp] = useState(() => {
     try {
       return window.localStorage.getItem(APP_UNLOCK_STORAGE_KEY) === 'true';
@@ -282,6 +302,7 @@ export default function App() {
   const welcomeCompleteTimeoutRef = useRef(null);
   const nationExitTimeoutRef = useRef(null);
   const nationEnterTimeoutRef = useRef(null);
+  const loadingScreenTimeoutRef = useRef(null);
   const skipNextRouteTransitionRef = useRef(false);
   const lastStoneSfxAtRef = useRef(0);
   const lastDungeonSfxAtRef = useRef(0);
@@ -336,6 +357,13 @@ export default function App() {
     if (nationEnterTimeoutRef.current) {
       clearTimeout(nationEnterTimeoutRef.current);
       nationEnterTimeoutRef.current = null;
+    }
+  };
+
+  const clearLoadingScreenTimeout = () => {
+    if (loadingScreenTimeoutRef.current) {
+      clearTimeout(loadingScreenTimeoutRef.current);
+      loadingScreenTimeoutRef.current = null;
     }
   };
 
@@ -576,6 +604,7 @@ export default function App() {
   useEffect(() => () => {
     clearTransitionTimeouts();
     clearNationCardTimeouts();
+    clearLoadingScreenTimeout();
   }, []);
 
   useEffect(() => {
@@ -629,13 +658,14 @@ export default function App() {
 
     const loadWarriors = async () => {
       try {
-        const response = await fetch('/ewc.json');
+        const response = await fetch(GOOGLE_SHEET_XLSX_URL);
 
         if (!response.ok) {
           throw new Error(`Failed to load warriors data (${response.status})`);
         }
 
-        const data = await response.json();
+        const workbookBuffer = await response.arrayBuffer();
+        const data = convertWorkbookArrayBuffer(workbookBuffer);
         const normalizedData = data.map((warrior) => ({
           ...warrior,
           photo: buildPhotoSources(warrior.photo)[0],
@@ -654,6 +684,13 @@ export default function App() {
       } finally {
         if (isMounted) {
           setIsFetchingWarriors(false);
+          setLoadingScreenPhase('exiting');
+          clearLoadingScreenTimeout();
+          loadingScreenTimeoutRef.current = setTimeout(() => {
+            setShowLoadingScreen(false);
+            setLoadingScreenPhase('idle');
+            loadingScreenTimeoutRef.current = null;
+          }, LOADING_SCREEN_EXIT_MS);
         }
       }
     };
@@ -796,6 +833,30 @@ export default function App() {
     }
   };
 
+  const renderLoadingState = (label = 'Loading warriors') => (
+    <div className="relative mx-auto flex min-h-[24rem] w-full max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
+      <div className="relative">
+        <div className="absolute inset-0 rounded-full bg-red-900 blur-3xl opacity-20 animate-loading-glow"></div>
+        <h3 className="relative z-10 text-[6rem] leading-none text-zinc-200 font-serif drop-shadow-[0_0_15px_rgba(139,0,0,0.5)] sm:text-[7.5rem]">
+          ᚢ
+        </h3>
+      </div>
+
+      <div className="mt-8 space-y-3">
+        <p className="text-[0.62rem] uppercase tracking-[0.5em] text-zinc-500 sm:text-[0.7rem]">EWC 2025</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.28em] text-zinc-200 sm:text-base">{label}</p>
+      </div>
+    </div>
+  );
+
+  const loadingOverlayClassName = loadingScreenPhase === 'exiting'
+    ? 'pointer-events-none opacity-0 translate-y-3 scale-[0.985]'
+    : 'opacity-100 translate-y-0 scale-100';
+
+  const loadingContentClassName = showLoadingScreen
+    ? 'opacity-0 translate-y-4'
+    : 'opacity-100 translate-y-0';
+
   const renderLanding = () => (
     <div className={`flex flex-col items-center justify-center min-h-screen transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
       <div className="relative">
@@ -846,7 +907,7 @@ export default function App() {
 
   const renderTribes = () => (
     <div className="min-h-screen pt-20 pb-16 px-4 sm:px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
-      <div className="text-center mb-12 sm:mb-16">
+      <div className="text-center mt-3 mb-12 sm:mb-16">
         <h2 className="text-[1.7rem] sm:text-4xl font-bold tracking-[0.14em] sm:tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
         <div className="w-24 h-1 bg-red-800 mx-auto opacity-50"></div>
         <button
@@ -861,17 +922,23 @@ export default function App() {
         </button>
       </div>
 
-      {isFetchingWarriors && (
-        <div className="text-center text-zinc-500 tracking-widest uppercase text-sm">Loading warriors...</div>
-      )}
+      <div className="relative min-h-[24rem]">
+        {showLoadingScreen && (
+          <div className={`absolute inset-x-0 top-0 z-20 transition-all duration-500 ease-out ${loadingOverlayClassName}`}>
+            {renderLoadingState()}
+          </div>
+        )}
 
-      {!isFetchingWarriors && fetchError && (
-        <div className="text-center text-red-500 tracking-wide">{fetchError}</div>
-      )}
+        {!isFetchingWarriors && fetchError && (
+          <div className={`text-center text-red-500 tracking-wide transition-all duration-500 ease-out ${loadingContentClassName}`}>
+            {fetchError}
+          </div>
+        )}
 
-      {!isFetchingWarriors && !fetchError && (
-        <>
-          <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 sm:gap-6 xl:hidden">
+        {!isFetchingWarriors && !fetchError && (
+          <div className={`transition-all duration-500 ease-out ${loadingContentClassName}`}>
+            <>
+              <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 sm:gap-6 xl:hidden">
             {tribes.map((tribe) => {
               const count = warriorsData.filter(w => w.tribe === tribe).length;
               const { icon: TribeIcon, accentClass } = getTribeVisual(tribe);
@@ -906,9 +973,9 @@ export default function App() {
                 </div>
               );
             })}
-          </div>
+              </div>
 
-          <div className="mx-auto hidden max-w-6xl xl:flex xl:flex-col xl:gap-6">
+              <div className="mx-auto hidden max-w-6xl xl:flex xl:flex-col xl:gap-6">
             {buildTribeRows(tribes).map((row, rowIndex) => (
               <div
                 key={`tribe-row-${rowIndex}`}
@@ -950,9 +1017,11 @@ export default function App() {
                 })}
               </div>
             ))}
+              </div>
+            </>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -1077,22 +1146,27 @@ export default function App() {
           </div>
         </div>
 
-        {isFetchingWarriors && (
-          <div className="text-center text-sm uppercase tracking-widest text-zinc-500">Loading warriors...</div>
-        )}
+        <div className="relative min-h-[24rem]">
+          {showLoadingScreen && (
+            <div className={`absolute inset-x-0 top-0 z-20 transition-all duration-500 ease-out ${loadingOverlayClassName}`}>
+              {renderLoadingState('Loading all warriors')}
+            </div>
+          )}
 
-        {!isFetchingWarriors && fetchError && (
-          <div className="text-center tracking-wide text-red-500">{fetchError}</div>
-        )}
+          {!isFetchingWarriors && fetchError && (
+            <div className={`text-center tracking-wide text-red-500 transition-all duration-500 ease-out ${loadingContentClassName}`}>
+              {fetchError}
+            </div>
+          )}
 
-        {!isFetchingWarriors && !fetchError && displayedNationWarriors.length === 0 && nationCardsPhase !== 'exiting' && (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-6 py-12 text-center">
-            <p className="text-sm uppercase tracking-[0.26em] text-zinc-400">No warriors match that search.</p>
-          </div>
-        )}
+          {!isFetchingWarriors && !fetchError && displayedNationWarriors.length === 0 && nationCardsPhase !== 'exiting' && (
+            <div className={`rounded-2xl border border-zinc-800 bg-zinc-900/70 px-6 py-12 text-center transition-all duration-500 ease-out ${loadingContentClassName}`}>
+              <p className="text-sm uppercase tracking-[0.26em] text-zinc-400">No warriors match that search.</p>
+            </div>
+          )}
 
-        {!isFetchingWarriors && !fetchError && displayedNationWarriors.length > 0 && (
-          <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+          {!isFetchingWarriors && !fetchError && displayedNationWarriors.length > 0 && (
+            <div className={`grid grid-cols-2 gap-4 transition-all duration-500 ease-out sm:gap-6 lg:grid-cols-3 xl:grid-cols-4 ${loadingContentClassName}`}>
             {displayedNationWarriors.map((warrior, index) => (
               <div
                 key={`${nationSearchAnimationKey}-${warrior.id}`}
@@ -1138,8 +1212,9 @@ export default function App() {
                 </div>
               </div>
             ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -1351,6 +1426,11 @@ export default function App() {
             type="button"
             className="group flex items-center gap-3"
             onClick={() => {
+              if (hasUnlockedApp) {
+                navigateToTribes();
+                return;
+              }
+
               navigateToLanding();
             }}
           >
@@ -1532,6 +1612,10 @@ export default function App() {
           0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
           100% { opacity: 0; transform: translateY(-14px) scale(0.985); filter: blur(6px); }
         }
+        @keyframes loading-glow {
+          0%, 100% { opacity: 0.14; transform: scale(0.92); }
+          50% { opacity: 0.28; transform: scale(1.05); }
+        }
         .animate-scene-exit {
           animation: scene-exit ${EXIT_DURATION_MS}ms cubic-bezier(0.45, 0, 0.2, 1) forwards;
         }
@@ -1584,6 +1668,9 @@ export default function App() {
         .animate-nation-card-out {
           animation: nation-card-out ${NATION_CARD_EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1) both;
           will-change: transform, opacity, filter;
+        }
+        .animate-loading-glow {
+          animation: loading-glow 3.2s ease-in-out infinite;
         }
       `}} />
     </div>
