@@ -802,17 +802,17 @@ export default function App() {
         {/* Glowing effect behind the rune */}
         <div className="absolute inset-0 bg-red-900 rounded-full blur-3xl opacity-20 transition-opacity duration-700 animate-pulse"></div>
         
-        <h1 className="text-[12rem] md:text-[18rem] leading-none text-zinc-200 font-serif text-center relative z-10 drop-shadow-[0_0_15px_rgba(139,0,0,0.5)] transition-colors duration-500">
+        <h1 className="text-[8.5rem] sm:text-[12rem] md:text-[18rem] leading-none text-zinc-200 font-serif text-center relative z-10 drop-shadow-[0_0_15px_rgba(139,0,0,0.5)] transition-colors duration-500">
           ᚢ
         </h1>
       </div>
       
       <div className="mt-8 text-center z-10 space-y-4">
-        <h2 className="text-3xl md:text-5xl font-bold tracking-[0.2em] text-zinc-100 uppercase">EWC 2025</h2>
-        <p className="text-zinc-500 tracking-widest text-sm md:text-base italic">Enlighten Warrior Training Camp 2025</p>
+        <h2 className="text-2xl sm:text-3xl md:text-5xl font-bold tracking-[0.18em] sm:tracking-[0.2em] text-zinc-100 uppercase">EWC 2025</h2>
+        <p className="text-xs sm:text-sm md:text-base text-zinc-500 tracking-[0.28em] sm:tracking-widest italic">Enlighten Warrior Training Camp 2025</p>
       </div>
 
-      <div className="mt-14 z-10 w-full max-w-md space-y-4 px-6">
+      <div className="mt-12 sm:mt-14 z-10 w-full max-w-md space-y-4 px-4 sm:px-6">
         <div className="relative overflow-visible">
           <div className={`pointer-events-none absolute inset-x-6 -top-4 h-16 rounded-full bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.4),rgba(127,29,29,0.14)_45%,transparent_78%)] blur-2xl transition-all duration-500 ${warriorEntryPhase === 'recognized' ? 'animate-warrior-entry-bleed opacity-100' : 'opacity-0'}`}></div>
           <div className={`pointer-events-none absolute inset-x-10 -bottom-6 h-20 rounded-full bg-[radial-gradient(circle_at_center,rgba(153,27,27,0.42),rgba(127,29,29,0.08)_52%,transparent_80%)] blur-3xl transition-all duration-500 ${warriorEntryPhase === 'recognized' ? 'animate-warrior-entry-pulse opacity-100' : 'opacity-0'}`}></div>
@@ -845,9 +845,9 @@ export default function App() {
   );
 
   const renderTribes = () => (
-    <div className="min-h-screen pt-24 pb-16 px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
-      <div className="text-center mb-16">
-        <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
+    <div className="min-h-screen pt-20 pb-16 px-4 sm:px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+      <div className="text-center mb-12 sm:mb-16">
+        <h2 className="text-[1.7rem] sm:text-4xl font-bold tracking-[0.14em] sm:tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
         <div className="w-24 h-1 bg-red-800 mx-auto opacity-50"></div>
         <button
           type="button"
@@ -871,7 +871,7 @@ export default function App() {
 
       {!isFetchingWarriors && !fetchError && (
         <>
-          <div className="mx-auto grid max-w-6xl grid-cols-2 gap-3 md:gap-6 xl:hidden">
+          <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 sm:gap-6 xl:hidden">
             {tribes.map((tribe) => {
               const count = warriorsData.filter(w => w.tribe === tribe).length;
               const { icon: TribeIcon, accentClass } = getTribeVisual(tribe);
@@ -960,8 +960,8 @@ export default function App() {
     const tribeWarriors = warriorsData.filter(w => w.tribe === selectedTribe).sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 
     return (
-      <div className="min-h-screen pt-24 px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-16 border-b border-zinc-800 pb-8">
+      <div className="min-h-screen pt-20 px-4 sm:px-6 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-12 sm:mb-16 border-b border-zinc-800 pb-8">
           <div>
             <button 
               onClick={() => {
@@ -972,14 +972,14 @@ export default function App() {
             >
               <ChevronRight className="rotate-180" size={14} /> Back to Tribes
             </button>
-            <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase">{selectedTribe}</h2>
+            <h2 className="text-[1.7rem] sm:text-4xl font-bold tracking-[0.14em] sm:tracking-widest text-zinc-100 uppercase">{selectedTribe}</h2>
           </div>
-          <div className="mt-4 md:mt-0 text-zinc-600 tracking-widest uppercase text-sm">
+          <div className="mt-4 md:mt-0 text-zinc-600 tracking-[0.22em] sm:tracking-widest uppercase text-[0.68rem] sm:text-sm">
             {tribeWarriors.length} Souls Forged
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 pb-24 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 pb-24 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
           {tribeWarriors.map((warrior) => (
             <div 
               key={warrior.id}
@@ -1024,7 +1024,7 @@ export default function App() {
 
   const renderNation = () => {
     return (
-      <div className="min-h-screen pt-24 px-6 pb-24 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+      <div className="min-h-screen pt-20 px-4 sm:px-6 pb-24 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
         <div className="mb-10 border-b border-zinc-800 pb-8">
           <button
             onClick={() => {
@@ -1037,8 +1037,8 @@ export default function App() {
           </button>
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase">All Warriors</h2>
-              <p className="mt-3 max-w-2xl text-sm tracking-[0.2em] text-zinc-500 uppercase">
+              <h2 className="text-[1.7rem] sm:text-4xl font-bold tracking-[0.14em] sm:tracking-widest text-zinc-100 uppercase">All Warriors</h2>
+              <p className="mt-3 max-w-2xl text-xs sm:text-sm tracking-[0.18em] sm:tracking-[0.2em] text-zinc-500 uppercase">
                 Search by full name, warrior name, city, or country
               </p>
             </div>
@@ -1052,7 +1052,7 @@ export default function App() {
                   autoComplete="off"
                   spellCheck="false"
                   placeholder="Search name, warrior name, city, country"
-                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/90 px-5 py-4 pr-14 text-sm uppercase tracking-[0.18em] text-zinc-100 outline-none transition-all duration-300 placeholder:text-zinc-600 focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]"
+                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/90 px-4 sm:px-5 py-4 pr-14 text-xs sm:text-sm uppercase tracking-[0.14em] sm:tracking-[0.18em] text-zinc-100 outline-none transition-all duration-300 placeholder:text-zinc-600 focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]"
                 />
                 {nationSearch && (
                   <button
@@ -1092,7 +1092,7 @@ export default function App() {
         )}
 
         {!isFetchingWarriors && !fetchError && displayedNationWarriors.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
             {displayedNationWarriors.map((warrior, index) => (
               <div
                 key={`${nationSearchAnimationKey}-${warrior.id}`}
@@ -1120,7 +1120,7 @@ export default function App() {
                   <div className="absolute right-2 top-2 z-20 rounded border border-zinc-700 bg-zinc-950/80 px-2 py-1 text-[0.65rem] font-mono text-zinc-300 backdrop-blur sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
                     #{warrior.sequenceNumber}
                   </div>
-                  <div className="absolute left-2 top-2 z-20 rounded border border-red-900/45 bg-red-950/60 px-2 py-1 text-[0.55rem] uppercase tracking-[0.2em] text-zinc-100 backdrop-blur sm:left-4 sm:top-4 sm:text-[0.65rem]">
+                  <div className="absolute left-2 top-2 z-20 rounded border border-red-900/45 bg-red-950/60 px-2 py-1 text-[0.5rem] uppercase tracking-[0.16em] text-zinc-100 backdrop-blur sm:left-4 sm:top-4 sm:text-[0.65rem]">
                     {warrior.tribe}
                   </div>
                 </div>
@@ -1346,7 +1346,7 @@ export default function App() {
 
       {/* Top Navbar Component (appears after landing) */}
       {view !== 'landing' && (
-        <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-6 py-4 flex justify-between items-center">
+        <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center">
           <button
             type="button"
             className="group flex items-center gap-3"
@@ -1357,7 +1357,7 @@ export default function App() {
             <span className="text-2xl font-serif text-red-700 group-hover:text-red-500 transition-colors drop-shadow-[0_0_5px_rgba(139,0,0,0.8)]">ᚢ</span>
             <span className="font-bold tracking-widest uppercase text-sm hidden sm:block">Yearbook</span>
           </button>
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {view !== 'nation' && (
               <button
                 type="button"
@@ -1376,11 +1376,11 @@ export default function App() {
                 setIsAudioMuted((currentValue) => !currentValue);
               }}
               aria-label={isAudioMuted ? 'Unmute background audio' : 'Mute background audio'}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:border-red-800 hover:text-white"
+              className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:border-red-800 hover:text-white"
             >
               {isAudioMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
             </button>
-            <div className="text-xs tracking-widest text-zinc-600 uppercase">
+            <div className="text-[0.65rem] sm:text-xs tracking-[0.22em] sm:tracking-widest text-zinc-600 uppercase">
               EWC 2025
             </div>
           </div>
