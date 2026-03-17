@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronRight, X, MapPin, Briefcase, Quote, Instagram, Linkedin, Facebook, Shield, Swords, Sparkles, Compass, Wind, Flame, Bird, Star, Sun, Zap, Crown } from 'lucide-react';
+import { ChevronRight, X, MapPin, Briefcase, Quote, Instagram, Linkedin, Facebook, Shield, Swords, Sparkles, Compass, Wind, Flame, Bird, Star, Sun, Zap, Crown, Volume2, VolumeX } from 'lucide-react';
 
 const parseHashRoute = (hash) => {
   const segments = hash
@@ -13,6 +13,18 @@ const parseHashRoute = (hash) => {
   }
 
   if (segments[0] !== 'tribes') {
+    if (segments[0] === 'nation') {
+      if (segments[1] === 'warrior' && segments[2]) {
+        return {
+          view: 'nation',
+          tribe: null,
+          warriorId: Number(segments[2]),
+        };
+      }
+
+      return { view: 'nation', tribe: null, warriorId: null };
+    }
+
     return { view: 'landing', tribe: null, warriorId: null };
   }
 
@@ -33,15 +45,27 @@ const parseHashRoute = (hash) => {
 
 const landingHash = '#/';
 const tribesHash = '#/tribes';
+const nationHash = '#/nation';
 const buildTribeHash = (tribe) => `#/tribes/${encodeURIComponent(tribe)}`;
 const buildWarriorHash = (tribe, warriorId) => `#/tribes/${encodeURIComponent(tribe)}/warrior/${warriorId}`;
+const buildNationWarriorHash = (warriorId) => `#/nation/warrior/${warriorId}`;
 const routeSignature = (route) => `${route.view}::${route.tribe || ''}::${route.warriorId || ''}`;
-const EXIT_DURATION_MS = 1100;
-const ENTER_DURATION_MS = 1900;
-const WELCOME_HOLD_DURATION_MS = 1500;
-const WELCOME_REVEAL_DURATION_MS = 900;
-const FALLBACK_PHOTO = '/logo.png';
+const EXIT_DURATION_MS = 380;
+const ENTER_DURATION_MS = 720;
+const WELCOME_HOLD_DURATION_MS = 1200;
+const WELCOME_REVEAL_DURATION_MS = 800;
+const WARRIOR_ENTRY_RECOGNITION_MS = 460;
+const AUDIO_TARGET_VOLUME = 0.2;
+const NATION_SEARCH_DEBOUNCE_MS = 500;
+const NATION_CARD_EXIT_MS = 220;
+const NATION_CARD_ENTER_MS = 520;
+const NATION_CARD_STAGGER_MS = 45;
+const NATION_CARD_MAX_STAGGER_MS = 240;
+const FALLBACK_PHOTO = '/ewc2025logo.jpg';
 const WARRIOR_PHRASES = ['act in spite of fear', 'act inspite of fear'];
+const STONE_SFX_VOLUME = 0.3;
+const DUNGEON_SFX_VOLUME = 0.3;
+const SFX_RETRIGGER_GAP_MS = 120;
 
 const tribeVisuals = {
   'Destiny Warrior': { icon: Compass, accentClass: 'group-hover:text-amber-400' },
@@ -66,9 +90,9 @@ const buildTribeRows = (tribes) => {
 
 const shouldAnimateRouteTransition = (currentRoute, nextRoute) => {
   const isModalOnlyChange =
-    currentRoute.view === 'roster' &&
-    nextRoute.view === 'roster' &&
-    currentRoute.tribe === nextRoute.tribe;
+    currentRoute.view === nextRoute.view &&
+    ((currentRoute.view === 'roster' && currentRoute.tribe === nextRoute.tribe) ||
+      currentRoute.view === 'nation');
 
   return !isModalOnlyChange;
 };
@@ -126,9 +150,34 @@ const resolveWarriorFromRoute = (route, warriorsData) => {
 
   return (
     warriorsData.find(
-      (item) => item.id === route.warriorId && item.tribe === route.tribe
+      (item) => item.id === route.warriorId && (route.view === 'nation' || item.tribe === route.tribe)
     ) || null
   );
+};
+
+const buildWarriorSearchText = (warrior) => [
+  warrior.fullName,
+  warrior.warriorName,
+  warrior.city,
+  warrior.country,
+  `${warrior.city || ''}, ${warrior.country || ''}`,
+]
+  .filter(Boolean)
+  .join(' ')
+  .toLowerCase();
+
+const filterNationWarriors = (warriors, searchValue) => {
+  const normalizedSearch = searchValue.trim().toLowerCase();
+
+  return [...warriors]
+    .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+    .filter((warrior) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return buildWarriorSearchText(warrior).includes(normalizedSearch);
+    });
 };
 
 const normalizeDetailList = (listValue, fallbackValue) => {
@@ -173,6 +222,15 @@ const hasWarriorPhrase = (value) => {
   return WARRIOR_PHRASES.some((phrase) => normalizedValue.includes(phrase));
 };
 
+const handleActivateOnKeyDown = (event, callback) => {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+
+  event.preventDefault();
+  callback();
+};
+
 export default function App() {
   const [view, setView] = useState('landing'); // 'landing', 'tribes', 'roster'
   const [selectedTribe, setSelectedTribe] = useState(null);
@@ -185,8 +243,15 @@ export default function App() {
   const [photoSourceIndexes, setPhotoSourceIndexes] = useState({});
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [warriorEntry, setWarriorEntry] = useState('');
+  const [warriorEntryPhase, setWarriorEntryPhase] = useState('idle');
+  const [nationSearch, setNationSearch] = useState('');
+  const [debouncedNationSearch, setDebouncedNationSearch] = useState('');
+  const [nationSearchAnimationKey, setNationSearchAnimationKey] = useState(0);
+  const [displayedNationWarriors, setDisplayedNationWarriors] = useState([]);
+  const [nationCardsPhase, setNationCardsPhase] = useState('idle');
   const [isWelcomingWarrior, setIsWelcomingWarrior] = useState(false);
   const [welcomePhase, setWelcomePhase] = useState('idle');
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
 
   const hasInitializedRoute = useRef(false);
   const activeRouteRef = useRef({ view: 'landing', tribe: null, warriorId: null });
@@ -194,10 +259,17 @@ export default function App() {
   const exitTimeoutRef = useRef(null);
   const enterTimeoutRef = useRef(null);
   const backgroundAudioRef = useRef(null);
+  const stoneAudioRef = useRef(null);
+  const dungeonAudioRef = useRef(null);
+  const warriorEntryTimeoutRef = useRef(null);
   const welcomeRouteTimeoutRef = useRef(null);
   const welcomeRevealTimeoutRef = useRef(null);
   const welcomeCompleteTimeoutRef = useRef(null);
+  const nationExitTimeoutRef = useRef(null);
+  const nationEnterTimeoutRef = useRef(null);
   const skipNextRouteTransitionRef = useRef(false);
+  const lastStoneSfxAtRef = useRef(0);
+  const lastDungeonSfxAtRef = useRef(0);
 
   const tribes = [...new Set(warriorsData.map((warrior) => warrior.tribe))].sort();
 
@@ -214,6 +286,11 @@ export default function App() {
   };
 
   const clearWelcomeTimeouts = () => {
+    if (warriorEntryTimeoutRef.current) {
+      clearTimeout(warriorEntryTimeoutRef.current);
+      warriorEntryTimeoutRef.current = null;
+    }
+
     if (welcomeRouteTimeoutRef.current) {
       clearTimeout(welcomeRouteTimeoutRef.current);
       welcomeRouteTimeoutRef.current = null;
@@ -233,6 +310,18 @@ export default function App() {
   const clearTransitionTimeouts = () => {
     clearSceneTransitionTimeouts();
     clearWelcomeTimeouts();
+  };
+
+  const clearNationCardTimeouts = () => {
+    if (nationExitTimeoutRef.current) {
+      clearTimeout(nationExitTimeoutRef.current);
+      nationExitTimeoutRef.current = null;
+    }
+
+    if (nationEnterTimeoutRef.current) {
+      clearTimeout(nationEnterTimeoutRef.current);
+      nationEnterTimeoutRef.current = null;
+    }
   };
 
   const applyRouteState = (route) => {
@@ -280,13 +369,67 @@ export default function App() {
     window.location.hash = hash;
   };
 
+  const playSfx = (audioRef, volume, lastPlayedAtRef) => {
+    const audioElement = audioRef.current;
+
+    if (!audioElement) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (now - lastPlayedAtRef.current < SFX_RETRIGGER_GAP_MS) {
+      return;
+    }
+
+    lastPlayedAtRef.current = now;
+    audioElement.volume = volume;
+    audioElement.currentTime = 0;
+
+    const playPromise = audioElement.play();
+
+    if (playPromise?.catch) {
+      playPromise.catch(() => {});
+    }
+  };
+
+  const playStoneSfx = () => {
+    playSfx(stoneAudioRef, STONE_SFX_VOLUME, lastStoneSfxAtRef);
+  };
+
+  const playDungeonSfx = () => {
+    playSfx(dungeonAudioRef, DUNGEON_SFX_VOLUME, lastDungeonSfxAtRef);
+  };
+
   const navigateToLanding = () => navigateToHash(landingHash);
   const navigateToTribes = () => navigateToHash(tribesHash);
+  const navigateToNation = () => navigateToHash(nationHash);
   const navigateToTribe = (tribe) => navigateToHash(buildTribeHash(tribe));
-  const navigateToWarrior = (warrior) => navigateToHash(buildWarriorHash(warrior.tribe, warrior.id));
+  const navigateToWarrior = (warrior) => {
+    if (view === 'nation') {
+      navigateToHash(buildNationWarriorHash(warrior.id));
+      return;
+    }
+
+    navigateToHash(buildWarriorHash(warrior.tribe, warrior.id));
+  };
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const closeSelectedWarrior = () => {
+    if (!selectedWarrior) {
+      return;
+    }
+
+    if (view === 'nation') {
+      navigateToNation();
+      return;
+    }
+
+    navigateToTribe(selectedWarrior.tribe);
+  };
+
+  const isNationSearchPending = nationSearch !== debouncedNationSearch;
 
   useEffect(() => {
     setIsLoaded(true);
@@ -313,7 +456,7 @@ export default function App() {
       return undefined;
     }
 
-    audioElement.volume = 0.5;
+    audioElement.volume = AUDIO_TARGET_VOLUME;
 
     let hasResolvedPlayback = false;
 
@@ -345,9 +488,110 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const audioElement = backgroundAudioRef.current;
+
+    if (!audioElement) {
+      return;
+    }
+
+    audioElement.muted = isAudioMuted;
+  }, [isAudioMuted]);
+
+  useEffect(() => {
+    const isModalOpen = Boolean(selectedWarrior);
+    const isTransitioning = transitionPhase !== 'idle';
+    const shouldLockDocument = isModalOpen || isTransitioning;
+
+    if (!shouldLockDocument) {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+      return undefined;
+    }
+
+    const handleEscapeKey = (event) => {
+      if (event.key === 'Escape') {
+        closeSelectedWarrior();
+      }
+    };
+
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+
+    if (isModalOpen && scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    } else {
+      document.body.style.paddingRight = '';
+    }
+
+    if (isModalOpen) {
+      window.addEventListener('keydown', handleEscapeKey);
+    }
+
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+
+      if (isModalOpen) {
+        window.removeEventListener('keydown', handleEscapeKey);
+      }
+    };
+  }, [selectedWarrior, transitionPhase, view]);
+
   useEffect(() => () => {
     clearTransitionTimeouts();
+    clearNationCardTimeouts();
   }, []);
+
+  useEffect(() => {
+    const debounceTimeout = setTimeout(() => {
+      setDebouncedNationSearch(nationSearch);
+    }, NATION_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(debounceTimeout);
+    };
+  }, [nationSearch]);
+
+  useEffect(() => {
+    const nextNationWarriors = filterNationWarriors(warriorsData, debouncedNationSearch);
+    const hasDisplayedNationWarriors = displayedNationWarriors.length > 0;
+
+    clearNationCardTimeouts();
+
+    if (!hasDisplayedNationWarriors) {
+      setDisplayedNationWarriors(nextNationWarriors);
+      setNationCardsPhase('entering');
+
+      nationEnterTimeoutRef.current = setTimeout(() => {
+        setNationCardsPhase('idle');
+        nationEnterTimeoutRef.current = null;
+      }, NATION_CARD_ENTER_MS);
+
+      return;
+    }
+
+    setNationCardsPhase('exiting');
+
+    nationExitTimeoutRef.current = setTimeout(() => {
+      requestAnimationFrame(() => {
+        setDisplayedNationWarriors(nextNationWarriors);
+        setNationSearchAnimationKey((currentValue) => currentValue + 1);
+        setNationCardsPhase('entering');
+      });
+
+      nationExitTimeoutRef.current = null;
+
+      nationEnterTimeoutRef.current = setTimeout(() => {
+        setNationCardsPhase('idle');
+        nationEnterTimeoutRef.current = null;
+      }, NATION_CARD_ENTER_MS);
+    }, NATION_CARD_EXIT_MS);
+  }, [warriorsData, debouncedNationSearch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -425,7 +669,7 @@ export default function App() {
       }
 
       clearSceneTransitionTimeouts();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
       setTransitionPhase('exiting');
 
       exitTimeoutRef.current = setTimeout(() => {
@@ -465,33 +709,50 @@ export default function App() {
   // --- VIEWS ---
 
   const startWarriorWelcome = () => {
-    if (isWelcomingWarrior) {
+    if (isWelcomingWarrior || warriorEntryTimeoutRef.current) {
       return;
     }
 
-    setIsWelcomingWarrior(true);
-    setWelcomePhase('entering');
-    setWarriorEntry('');
-    skipNextRouteTransitionRef.current = true;
+    setWarriorEntryPhase('recognized');
 
-    clearSceneTransitionTimeouts();
-    clearWelcomeTimeouts();
+    warriorEntryTimeoutRef.current = setTimeout(() => {
+      warriorEntryTimeoutRef.current = null;
+      setWarriorEntryPhase('idle');
+      playStoneSfx();
+      setIsWelcomingWarrior(true);
+      setWelcomePhase('entering');
+      setWarriorEntry('');
+      skipNextRouteTransitionRef.current = true;
 
-    welcomeRouteTimeoutRef.current = setTimeout(() => {
-      navigateToTribes();
-      welcomeRouteTimeoutRef.current = null;
-    }, WELCOME_HOLD_DURATION_MS);
+      clearSceneTransitionTimeouts();
 
-    welcomeRevealTimeoutRef.current = setTimeout(() => {
-      setWelcomePhase('revealing');
-      welcomeRevealTimeoutRef.current = null;
-    }, WELCOME_HOLD_DURATION_MS);
+      welcomeRouteTimeoutRef.current = setTimeout(() => {
+        navigateToTribes();
+        welcomeRouteTimeoutRef.current = null;
+      }, WELCOME_HOLD_DURATION_MS);
 
-    welcomeCompleteTimeoutRef.current = setTimeout(() => {
-      setIsWelcomingWarrior(false);
-      setWelcomePhase('idle');
-      welcomeCompleteTimeoutRef.current = null;
-    }, WELCOME_HOLD_DURATION_MS + WELCOME_REVEAL_DURATION_MS);
+      welcomeRevealTimeoutRef.current = setTimeout(() => {
+        setWelcomePhase('revealing');
+        welcomeRevealTimeoutRef.current = null;
+      }, WELCOME_HOLD_DURATION_MS);
+
+      welcomeCompleteTimeoutRef.current = setTimeout(() => {
+        setIsWelcomingWarrior(false);
+        setWelcomePhase('idle');
+        welcomeCompleteTimeoutRef.current = null;
+      }, WELCOME_HOLD_DURATION_MS + WELCOME_REVEAL_DURATION_MS);
+    }, WARRIOR_ENTRY_RECOGNITION_MS);
+  };
+
+  const resetWarriorEntryRecognition = () => {
+    if (warriorEntryTimeoutRef.current) {
+      clearTimeout(warriorEntryTimeoutRef.current);
+      warriorEntryTimeoutRef.current = null;
+    }
+
+    if (!isWelcomingWarrior) {
+      setWarriorEntryPhase('idle');
+    }
   };
 
   const renderLanding = () => (
@@ -511,23 +772,33 @@ export default function App() {
       </div>
 
       <div className="mt-14 z-10 w-full max-w-md space-y-4 px-6">
-        <input
-          type="text"
-          value={warriorEntry}
-          onChange={(event) => {
-            const nextValue = event.target.value;
+        <div className="relative overflow-visible">
+          <div className={`pointer-events-none absolute inset-x-6 -top-4 h-16 rounded-full bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.4),rgba(127,29,29,0.14)_45%,transparent_78%)] blur-2xl transition-all duration-500 ${warriorEntryPhase === 'recognized' ? 'animate-warrior-entry-bleed opacity-100' : 'opacity-0'}`}></div>
+          <div className={`pointer-events-none absolute inset-x-10 -bottom-6 h-20 rounded-full bg-[radial-gradient(circle_at_center,rgba(153,27,27,0.42),rgba(127,29,29,0.08)_52%,transparent_80%)] blur-3xl transition-all duration-500 ${warriorEntryPhase === 'recognized' ? 'animate-warrior-entry-pulse opacity-100' : 'opacity-0'}`}></div>
+          <div className={`pointer-events-none absolute inset-x-0 top-1/2 h-24 -translate-y-1/2 bg-[linear-gradient(90deg,transparent_0%,rgba(239,68,68,0.1)_18%,rgba(153,27,27,0.3)_50%,rgba(239,68,68,0.1)_82%,transparent_100%)] blur-2xl transition-all duration-500 ${warriorEntryPhase === 'recognized' ? 'opacity-100' : 'opacity-0'}`}></div>
 
-            setWarriorEntry(nextValue);
+          <input
+            type="text"
+            value={warriorEntry}
+            onChange={(event) => {
+              const nextValue = event.target.value;
 
-            if (hasWarriorPhrase(nextValue)) {
-              startWarriorWelcome();
-            }
-          }}
-          autoComplete="off"
-          spellCheck="false"
-          placeholder="I am a Warrior, I..."
-          className={`w-full rounded-xl border px-5 py-4 text-center text-sm uppercase tracking-[0.24em] text-zinc-100 outline-none transition-all duration-500 placeholder:text-zinc-600 ${hasWarriorPhrase(warriorEntry) ? 'border-red-600 bg-red-950/20 shadow-[0_0_0_1px_rgba(153,27,27,0.65),0_0_28px_rgba(127,29,29,0.2)]' : 'border-zinc-800 bg-zinc-950/90'} focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]`}
-        />
+              setWarriorEntry(nextValue);
+
+              if (hasWarriorPhrase(nextValue)) {
+                startWarriorWelcome();
+                return;
+              }
+
+              resetWarriorEntryRecognition();
+            }}
+            autoComplete="off"
+            spellCheck="false"
+            placeholder="I am a Warrior, I..."
+            disabled={warriorEntryPhase === 'recognized'}
+            className={`relative z-10 w-full rounded-xl border px-5 py-4 text-center text-sm uppercase tracking-[0.24em] text-zinc-100 outline-none transition-all duration-500 placeholder:text-zinc-600 disabled:cursor-not-allowed disabled:text-zinc-100 ${warriorEntryPhase === 'recognized' ? 'animate-warrior-entry-confirm border-red-500 bg-red-950/45 shadow-[0_0_0_1px_rgba(185,28,28,0.85),0_0_36px_rgba(127,29,29,0.34)]' : hasWarriorPhrase(warriorEntry) ? 'border-red-600 bg-red-950/20 shadow-[0_0_0_1px_rgba(153,27,27,0.65),0_0_28px_rgba(127,29,29,0.2)]' : 'border-zinc-800 bg-zinc-950/90'} focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]`}
+          />
+        </div>
       </div>
     </div>
   );
@@ -537,6 +808,16 @@ export default function App() {
       <div className="text-center mb-16">
         <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase mb-4">Select Your Tribe</h2>
         <div className="w-24 h-1 bg-red-800 mx-auto opacity-50"></div>
+        <button
+          type="button"
+          onClick={() => {
+            playDungeonSfx();
+            navigateToNation();
+          }}
+          className="mt-8 inline-flex items-center gap-2 rounded-full border border-red-800/80 bg-red-950/30 px-6 py-3 text-xs font-semibold uppercase tracking-[0.28em] text-zinc-100 transition-all duration-300 hover:-translate-y-1 hover:border-red-600 hover:bg-red-950/55 hover:shadow-[0_16px_32px_rgba(120,18,18,0.22)]"
+        >
+          <Shield size={14} /> See All Nation
+        </button>
       </div>
 
       {isFetchingWarriors && (
@@ -557,8 +838,17 @@ export default function App() {
               return (
                 <div 
                   key={tribe}
-                  onClick={() => navigateToTribe(tribe)}
-                  className="group relative min-h-[12.5rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-4 sm:min-h-[17rem] sm:p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)]"
+                  onClick={() => {
+                    playDungeonSfx();
+                    navigateToTribe(tribe);
+                  }}
+                  onKeyDown={(event) => handleActivateOnKeyDown(event, () => {
+                    playDungeonSfx();
+                    navigateToTribe(tribe);
+                  })}
+                  role="button"
+                  tabIndex={0}
+                  className="group relative min-h-[12.5rem] cursor-pointer overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/95 p-4 transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)] focus:outline-none focus-visible:border-red-700 focus-visible:ring-2 focus-visible:ring-red-700/70 sm:min-h-[17rem] sm:p-8"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500/50 to-transparent opacity-60"></div>
@@ -590,8 +880,17 @@ export default function App() {
                   return (
                     <div 
                       key={tribe}
-                      onClick={() => navigateToTribe(tribe)}
-                      className={`group relative min-h-[18rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)] ${row.length === 2 ? 'w-[22rem]' : 'w-[18rem]'}`}
+                      onClick={() => {
+                        playDungeonSfx();
+                        navigateToTribe(tribe);
+                      }}
+                      onKeyDown={(event) => handleActivateOnKeyDown(event, () => {
+                        playDungeonSfx();
+                        navigateToTribe(tribe);
+                      })}
+                      role="button"
+                      tabIndex={0}
+                      className={`group relative min-h-[18rem] cursor-pointer overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)] focus:outline-none focus-visible:border-red-700 focus-visible:ring-2 focus-visible:ring-red-700/70 ${row.length === 2 ? 'w-[22rem]' : 'w-[18rem]'}`}
                     >
                       <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500/50 to-transparent opacity-60"></div>
@@ -624,7 +923,10 @@ export default function App() {
         <div className="flex flex-col md:flex-row justify-between items-center mb-16 border-b border-zinc-800 pb-8">
           <div>
             <button 
-              onClick={navigateToTribes}
+              onClick={() => {
+                playStoneSfx();
+                navigateToTribes();
+              }}
               className="text-zinc-500 hover:text-red-500 flex items-center gap-2 tracking-widest text-xs uppercase mb-4 transition-colors"
             >
               <ChevronRight className="rotate-180" size={14} /> Back to Tribes
@@ -640,8 +942,15 @@ export default function App() {
           {tribeWarriors.map((warrior) => (
             <div 
               key={warrior.id}
-              onClick={() => navigateToWarrior(warrior)}
-              className="group relative bg-zinc-900 rounded-lg overflow-hidden cursor-pointer border border-zinc-800 hover:border-red-800 transition-all duration-500"
+              onClick={() => {
+                navigateToWarrior(warrior);
+              }}
+              onKeyDown={(event) => handleActivateOnKeyDown(event, () => {
+                navigateToWarrior(warrior);
+              })}
+              role="button"
+              tabIndex={0}
+              className="group relative cursor-pointer overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 transition-all duration-500 hover:border-red-800 focus:outline-none focus-visible:border-red-700 focus-visible:ring-2 focus-visible:ring-red-700/70"
             >
               <div className="aspect-[4/5] overflow-hidden relative">
                 <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors duration-500 z-10"></div>
@@ -672,6 +981,128 @@ export default function App() {
     );
   };
 
+  const renderNation = () => {
+    return (
+      <div className="min-h-screen pt-24 px-6 pb-24 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <div className="mb-10 border-b border-zinc-800 pb-8">
+          <button
+            onClick={() => {
+              playStoneSfx();
+              navigateToTribes();
+            }}
+            className="mb-4 flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-500 transition-colors hover:text-red-500"
+          >
+            <ChevronRight className="rotate-180" size={14} /> Back to Tribes
+          </button>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-4xl font-bold tracking-widest text-zinc-100 uppercase">All Warriors</h2>
+              <p className="mt-3 max-w-2xl text-sm tracking-[0.2em] text-zinc-500 uppercase">
+                Search by full name, warrior name, city, or country
+              </p>
+            </div>
+
+            <div className="w-full max-w-xl">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={nationSearch}
+                  onChange={(event) => setNationSearch(event.target.value)}
+                  autoComplete="off"
+                  spellCheck="false"
+                  placeholder="Search name, warrior name, city, country"
+                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/90 px-5 py-4 pr-14 text-sm uppercase tracking-[0.18em] text-zinc-100 outline-none transition-all duration-300 placeholder:text-zinc-600 focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]"
+                />
+                {nationSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNationSearch('');
+                    }}
+                    className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/90 text-zinc-400 transition-colors hover:border-red-800 hover:text-white"
+                    aria-label="Clear search"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-col gap-2 text-xs uppercase tracking-[0.28em] text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
+            <span>{displayedNationWarriors.length} Warriors Shown</span>
+            <span className={`transition-opacity duration-200 ${isNationSearchPending ? 'opacity-100 text-red-400' : 'opacity-0'}`} aria-live="polite">
+              Updating Results...
+            </span>
+          </div>
+        </div>
+
+        {isFetchingWarriors && (
+          <div className="text-center text-sm uppercase tracking-widest text-zinc-500">Loading warriors...</div>
+        )}
+
+        {!isFetchingWarriors && fetchError && (
+          <div className="text-center tracking-wide text-red-500">{fetchError}</div>
+        )}
+
+        {!isFetchingWarriors && !fetchError && displayedNationWarriors.length === 0 && nationCardsPhase !== 'exiting' && (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-6 py-12 text-center">
+            <p className="text-sm uppercase tracking-[0.26em] text-zinc-400">No warriors match that search.</p>
+          </div>
+        )}
+
+        {!isFetchingWarriors && !fetchError && displayedNationWarriors.length > 0 && (
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+            {displayedNationWarriors.map((warrior, index) => (
+              <div
+                key={`${nationSearchAnimationKey}-${warrior.id}`}
+                onClick={() => {
+                  navigateToWarrior(warrior);
+                }}
+                onKeyDown={(event) => handleActivateOnKeyDown(event, () => {
+                  navigateToWarrior(warrior);
+                })}
+                role="button"
+                tabIndex={0}
+                className={`group relative cursor-pointer overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 transition-all duration-500 hover:border-red-800 ${nationCardsPhase === 'exiting' ? 'animate-nation-card-out' : 'animate-nation-card-in'}`}
+                style={{ animationDelay: nationCardsPhase === 'exiting' ? '0ms' : `${Math.min(index * NATION_CARD_STAGGER_MS, NATION_CARD_MAX_STAGGER_MS)}ms` }}
+              >
+                <div className="relative aspect-[4/5] overflow-hidden">
+                  <div className="absolute inset-0 z-10 bg-black/40 transition-colors duration-500 group-hover:bg-transparent"></div>
+                  <img
+                    src={getWarriorPhotoSrc(warrior)}
+                    alt={warrior.fullName}
+                    onError={() => handleWarriorImageError(warrior.id)}
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    className={`h-full w-full transition-all duration-700 ${isFallbackPhoto(warrior) ? 'object-contain bg-black/90 p-4 filter-none sm:p-10 group-hover:scale-105' : 'object-cover group-hover:scale-105 md:filter md:grayscale-[35%] md:saturate-75 md:brightness-90 md:group-hover:grayscale-0 md:group-hover:saturate-100 md:group-hover:brightness-100'}`}
+                  />
+                  <div className="absolute right-2 top-2 z-20 rounded border border-zinc-700 bg-zinc-950/80 px-2 py-1 text-[0.65rem] font-mono text-zinc-300 backdrop-blur sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
+                    #{warrior.sequenceNumber}
+                  </div>
+                  <div className="absolute left-2 top-2 z-20 rounded border border-red-900/45 bg-red-950/60 px-2 py-1 text-[0.55rem] uppercase tracking-[0.2em] text-zinc-100 backdrop-blur sm:left-4 sm:top-4 sm:text-[0.65rem]">
+                    {warrior.tribe}
+                  </div>
+                </div>
+
+                <div className="relative min-h-[6.8rem] overflow-hidden border-t border-zinc-800 p-3 sm:min-h-[10.5rem] sm:p-5">
+                  <h3 className="line-clamp-2 text-[0.72rem] font-bold uppercase tracking-wide text-zinc-100 sm:text-xl">
+                    {warrior.fullName}
+                  </h3>
+                  <p className="mt-1 text-[0.58rem] uppercase tracking-[0.16em] text-red-600/80 sm:text-sm sm:tracking-widest">
+                    "{warrior.warriorName}"
+                  </p>
+                  <p className="mt-3 text-[0.6rem] uppercase tracking-[0.18em] text-zinc-500 sm:text-xs sm:tracking-[0.22em]">
+                    {warrior.city}, {warrior.country}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderModal = () => {
     if (!selectedWarrior) return null;
 
@@ -689,13 +1120,13 @@ export default function App() {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
         <div 
           className="absolute inset-0 bg-zinc-950/90 backdrop-blur-md"
-          onClick={() => navigateToTribe(selectedWarrior.tribe)}
+          onClick={closeSelectedWarrior}
         ></div>
         
-        <div className="modal-scroll relative bg-zinc-900 border border-zinc-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col md:flex-row animate-in zoom-in-95 duration-300">
+        <div className="modal-scroll relative bg-zinc-900 border border-zinc-800 w-full max-w-4xl max-h-[90vh] overflow-y-scroll rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col md:flex-row animate-in zoom-in-95 duration-300">
           
           <button 
-            onClick={() => navigateToTribe(selectedWarrior.tribe)}
+            onClick={closeSelectedWarrior}
             className="absolute top-4 right-4 z-20 bg-zinc-800/50 hover:bg-red-900/50 text-zinc-400 hover:text-zinc-100 p-2 rounded-full transition-colors backdrop-blur"
           >
             <X size={20} />
@@ -856,19 +1287,61 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-300 font-sans selection:bg-red-900/50 selection:text-white overflow-x-hidden">
       <audio ref={backgroundAudioRef} src="/background.mp3" autoPlay loop preload="auto" className="hidden" />
+      <audio ref={stoneAudioRef} src="/stone.wav" preload="auto" className="hidden" />
+      <audio ref={dungeonAudioRef} src="/dungeon.wav" preload="auto" className="hidden" />
+
+      {view === 'landing' && (
+        <button
+          type="button"
+          onClick={() => {
+            setIsAudioMuted((currentValue) => !currentValue);
+          }}
+          aria-label={isAudioMuted ? 'Unmute background audio' : 'Mute background audio'}
+          className="fixed right-4 top-4 z-[80] flex h-11 w-11 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950/88 text-zinc-200 shadow-[0_16px_36px_rgba(0,0,0,0.35)] backdrop-blur-md transition-all duration-300 hover:border-red-700 hover:text-white sm:right-6 sm:top-6 sm:h-12 sm:w-12"
+        >
+          {isAudioMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+      )}
 
       {/* Top Navbar Component (appears after landing) */}
       {view !== 'landing' && (
         <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-6 py-4 flex justify-between items-center">
-          <div 
-            className="flex items-center gap-3 cursor-pointer group"
-            onClick={navigateToLanding}
+          <button
+            type="button"
+            className="group flex items-center gap-3"
+            onClick={() => {
+              navigateToLanding();
+            }}
           >
             <span className="text-2xl font-serif text-red-700 group-hover:text-red-500 transition-colors drop-shadow-[0_0_5px_rgba(139,0,0,0.8)]">ᚢ</span>
             <span className="font-bold tracking-widest uppercase text-sm hidden sm:block">Yearbook</span>
-          </div>
-          <div className="text-xs tracking-widest text-zinc-600 uppercase">
-            EWC 2025
+          </button>
+          <div className="flex items-center gap-3 sm:gap-4">
+            {view !== 'nation' && (
+              <button
+                type="button"
+                onClick={() => {
+                  playDungeonSfx();
+                  navigateToNation();
+                }}
+                className="hidden rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-2 text-[0.62rem] font-semibold uppercase tracking-[0.24em] text-zinc-300 transition-colors hover:border-red-800 hover:text-white md:block"
+              >
+                See All Nation
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsAudioMuted((currentValue) => !currentValue);
+              }}
+              aria-label={isAudioMuted ? 'Unmute background audio' : 'Mute background audio'}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-300 transition-colors hover:border-red-800 hover:text-white"
+            >
+              {isAudioMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <div className="text-xs tracking-widest text-zinc-600 uppercase">
+              EWC 2025
+            </div>
           </div>
         </nav>
       )}
@@ -876,6 +1349,7 @@ export default function App() {
       <main className={`transition-transform transition-opacity duration-500 will-change-transform ${sceneClassName}`}>
         {view === 'landing' && renderLanding()}
         {view === 'tribes' && renderTribes()}
+        {view === 'nation' && renderNation()}
         {view === 'roster' && renderRoster()}
       </main>
 
@@ -926,11 +1400,8 @@ export default function App() {
           animation: subtle-pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         .modal-scroll {
-          scrollbar-width: thin;
+          scrollbar-gutter: stable;
           scrollbar-color: rgba(120, 24, 24, 0.7) rgba(24, 24, 27, 0.95);
-        }
-        .modal-scroll::-webkit-scrollbar {
-          width: 10px;
         }
         .modal-scroll::-webkit-scrollbar-track {
           background: rgba(24, 24, 27, 0.96);
@@ -997,6 +1468,29 @@ export default function App() {
           0% { transform: translateY(0) scale(1); opacity: 1; }
           100% { transform: translateY(56px) scale(0.985); opacity: 0; }
         }
+        @keyframes warrior-entry-confirm {
+          0% { transform: scale(1); box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.45), 0 0 0 rgba(127, 29, 29, 0); }
+          35% { transform: scale(1.015); box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.7), 0 0 24px rgba(127, 29, 29, 0.3); }
+          100% { transform: scale(1); box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.75), 0 0 30px rgba(127, 29, 29, 0.28); }
+        }
+        @keyframes warrior-entry-bleed {
+          0% { opacity: 0; transform: translateY(8px) scaleX(0.82) scaleY(0.88); }
+          35% { opacity: 1; transform: translateY(0) scaleX(1.08) scaleY(1.04); }
+          100% { opacity: 0.78; transform: translateY(4px) scaleX(1.14) scaleY(1.1); }
+        }
+        @keyframes warrior-entry-pulse {
+          0% { opacity: 0; transform: scale(0.92); }
+          45% { opacity: 1; transform: scale(1.08); }
+          100% { opacity: 0.72; transform: scale(1.12); }
+        }
+        @keyframes nation-card-in {
+          0% { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(8px); }
+          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes nation-card-out {
+          0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+          100% { opacity: 0; transform: translateY(-14px) scale(0.985); filter: blur(6px); }
+        }
         .animate-scene-exit {
           animation: scene-exit ${EXIT_DURATION_MS}ms cubic-bezier(0.45, 0, 0.2, 1) forwards;
         }
@@ -1032,6 +1526,23 @@ export default function App() {
         }
         .animate-welcome-content-out {
           animation: welcome-content-out ${WELCOME_REVEAL_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .animate-warrior-entry-confirm {
+          animation: warrior-entry-confirm ${WARRIOR_ENTRY_RECOGNITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .animate-warrior-entry-bleed {
+          animation: warrior-entry-bleed ${WARRIOR_ENTRY_RECOGNITION_MS}ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .animate-warrior-entry-pulse {
+          animation: warrior-entry-pulse ${WARRIOR_ENTRY_RECOGNITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .animate-nation-card-in {
+          animation: nation-card-in ${NATION_CARD_ENTER_MS}ms cubic-bezier(0.22, 1, 0.36, 1) both;
+          will-change: transform, opacity, filter;
+        }
+        .animate-nation-card-out {
+          animation: nation-card-out ${NATION_CARD_EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1) both;
+          will-change: transform, opacity, filter;
         }
       `}} />
     </div>
