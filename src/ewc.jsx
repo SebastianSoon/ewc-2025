@@ -56,6 +56,8 @@ const WELCOME_HOLD_DURATION_MS = 1200;
 const WELCOME_REVEAL_DURATION_MS = 800;
 const WARRIOR_ENTRY_RECOGNITION_MS = 460;
 const AUDIO_TARGET_VOLUME = 0.2;
+const AUDIO_MUTE_STORAGE_KEY = 'ewc-audio-muted';
+const APP_UNLOCK_STORAGE_KEY = 'ewc-warrior-unlocked';
 const NATION_SEARCH_DEBOUNCE_MS = 500;
 const NATION_CARD_EXIT_MS = 220;
 const NATION_CARD_ENTER_MS = 520;
@@ -251,7 +253,20 @@ export default function App() {
   const [nationCardsPhase, setNationCardsPhase] = useState('idle');
   const [isWelcomingWarrior, setIsWelcomingWarrior] = useState(false);
   const [welcomePhase, setWelcomePhase] = useState('idle');
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [hasUnlockedApp, setHasUnlockedApp] = useState(() => {
+    try {
+      return window.localStorage.getItem(APP_UNLOCK_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isAudioMuted, setIsAudioMuted] = useState(() => {
+    try {
+      return window.localStorage.getItem(AUDIO_MUTE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const hasInitializedRoute = useRef(false);
   const activeRouteRef = useRef({ view: 'landing', tribe: null, warriorId: null });
@@ -499,6 +514,22 @@ export default function App() {
   }, [isAudioMuted]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(AUDIO_MUTE_STORAGE_KEY, String(isAudioMuted));
+    } catch {
+      // Ignore storage failures and keep the in-memory preference.
+    }
+  }, [isAudioMuted]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(APP_UNLOCK_STORAGE_KEY, String(hasUnlockedApp));
+    } catch {
+      // Ignore storage failures and keep the in-memory preference.
+    }
+  }, [hasUnlockedApp]);
+
+  useEffect(() => {
     const isModalOpen = Boolean(selectedWarrior);
     const isTransitioning = transitionPhase !== 'idle';
     const shouldLockDocument = isModalOpen || isTransitioning;
@@ -636,7 +667,16 @@ export default function App() {
 
   useEffect(() => {
     const syncRouteWithHash = () => {
-      const route = parseHashRoute(window.location.hash);
+      let route = parseHashRoute(window.location.hash);
+
+      if (!hasUnlockedApp && route.view !== 'landing') {
+        route = { view: 'landing', tribe: null, warriorId: null };
+
+        if (window.location.hash !== landingHash) {
+          window.location.hash = landingHash;
+        }
+      }
+
       const nextSignature = routeSignature(route);
       const isModalOnlyChange = !shouldAnimateRouteTransition(activeRouteRef.current, route);
 
@@ -692,7 +732,7 @@ export default function App() {
       clearSceneTransitionTimeouts();
       window.removeEventListener('hashchange', syncRouteWithHash);
     };
-  }, [warriorsData]);
+  }, [warriorsData, hasUnlockedApp]);
 
   const sceneClassName = transitionPhase === 'exiting'
     ? 'animate-scene-exit'
@@ -718,6 +758,7 @@ export default function App() {
     warriorEntryTimeoutRef.current = setTimeout(() => {
       warriorEntryTimeoutRef.current = null;
       setWarriorEntryPhase('idle');
+      setHasUnlockedApp(true);
       playStoneSfx();
       setIsWelcomingWarrior(true);
       setWelcomePhase('entering');
