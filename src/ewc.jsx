@@ -38,7 +38,10 @@ const buildWarriorHash = (tribe, warriorId) => `#/tribes/${encodeURIComponent(tr
 const routeSignature = (route) => `${route.view}::${route.tribe || ''}::${route.warriorId || ''}`;
 const EXIT_DURATION_MS = 1100;
 const ENTER_DURATION_MS = 1900;
+const WELCOME_HOLD_DURATION_MS = 1500;
+const WELCOME_REVEAL_DURATION_MS = 900;
 const FALLBACK_PHOTO = '/logo.png';
+const WARRIOR_PHRASES = ['act in spite of fear', 'act inspite of fear'];
 
 const tribeVisuals = {
   'Destiny Warrior': { icon: Compass, accentClass: 'group-hover:text-amber-400' },
@@ -128,6 +131,48 @@ const resolveWarriorFromRoute = (route, warriorsData) => {
   );
 };
 
+const normalizeDetailList = (listValue, fallbackValue) => {
+  if (Array.isArray(listValue)) {
+    return listValue
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof fallbackValue !== 'string') {
+    return [];
+  }
+
+  const normalizedFallback = fallbackValue.trim();
+
+  if (!normalizedFallback) {
+    return [];
+  }
+
+  if (normalizedFallback.includes('\n')) {
+    return normalizedFallback
+      .split(/\n+/)
+      .map((item) => item.replace(/^[-*\d).\s]+/, '').trim())
+      .filter(Boolean);
+  }
+
+  return normalizedFallback
+    .split(',')
+    .map((item) => item.replace(/^[-*\d).\s]+/, '').trim())
+    .filter(Boolean);
+};
+
+const normalizeWarriorPhrase = (value) => value
+  .toLowerCase()
+  .replace(/[^a-z\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const hasWarriorPhrase = (value) => {
+  const normalizedValue = normalizeWarriorPhrase(value);
+
+  return WARRIOR_PHRASES.some((phrase) => normalizedValue.includes(phrase));
+};
+
 export default function App() {
   const [view, setView] = useState('landing'); // 'landing', 'tribes', 'roster'
   const [selectedTribe, setSelectedTribe] = useState(null);
@@ -138,16 +183,25 @@ export default function App() {
   const [fetchError, setFetchError] = useState(null);
   const [transitionPhase, setTransitionPhase] = useState('idle');
   const [photoSourceIndexes, setPhotoSourceIndexes] = useState({});
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [warriorEntry, setWarriorEntry] = useState('');
+  const [isWelcomingWarrior, setIsWelcomingWarrior] = useState(false);
+  const [welcomePhase, setWelcomePhase] = useState('idle');
 
   const hasInitializedRoute = useRef(false);
   const activeRouteRef = useRef({ view: 'landing', tribe: null, warriorId: null });
   const activeRouteSignatureRef = useRef(routeSignature({ view: 'landing', tribe: null, warriorId: null }));
   const exitTimeoutRef = useRef(null);
   const enterTimeoutRef = useRef(null);
+  const backgroundAudioRef = useRef(null);
+  const welcomeRouteTimeoutRef = useRef(null);
+  const welcomeRevealTimeoutRef = useRef(null);
+  const welcomeCompleteTimeoutRef = useRef(null);
+  const skipNextRouteTransitionRef = useRef(false);
 
   const tribes = [...new Set(warriorsData.map((warrior) => warrior.tribe))].sort();
 
-  const clearTransitionTimeouts = () => {
+  const clearSceneTransitionTimeouts = () => {
     if (exitTimeoutRef.current) {
       clearTimeout(exitTimeoutRef.current);
       exitTimeoutRef.current = null;
@@ -157,6 +211,28 @@ export default function App() {
       clearTimeout(enterTimeoutRef.current);
       enterTimeoutRef.current = null;
     }
+  };
+
+  const clearWelcomeTimeouts = () => {
+    if (welcomeRouteTimeoutRef.current) {
+      clearTimeout(welcomeRouteTimeoutRef.current);
+      welcomeRouteTimeoutRef.current = null;
+    }
+
+    if (welcomeRevealTimeoutRef.current) {
+      clearTimeout(welcomeRevealTimeoutRef.current);
+      welcomeRevealTimeoutRef.current = null;
+    }
+
+    if (welcomeCompleteTimeoutRef.current) {
+      clearTimeout(welcomeCompleteTimeoutRef.current);
+      welcomeCompleteTimeoutRef.current = null;
+    }
+  };
+
+  const clearTransitionTimeouts = () => {
+    clearSceneTransitionTimeouts();
+    clearWelcomeTimeouts();
   };
 
   const applyRouteState = (route) => {
@@ -208,9 +284,69 @@ export default function App() {
   const navigateToTribes = () => navigateToHash(tribesHash);
   const navigateToTribe = (tribe) => navigateToHash(buildTribeHash(tribe));
   const navigateToWarrior = (warrior) => navigateToHash(buildWarriorHash(warrior.tribe, warrior.id));
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     setIsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    const updateScrollTopVisibility = () => {
+      const revealThreshold = window.innerWidth < 640 ? 120 : 320;
+      setShowScrollTop(window.scrollY > revealThreshold);
+    };
+
+    updateScrollTopVisibility();
+    window.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', updateScrollTopVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    const audioElement = backgroundAudioRef.current;
+
+    if (!audioElement) {
+      return undefined;
+    }
+
+    audioElement.volume = 0;
+
+    let hasResolvedPlayback = false;
+
+    const attemptPlayback = async () => {
+      try {
+        await audioElement.play();
+        hasResolvedPlayback = true;
+      } catch {
+        hasResolvedPlayback = false;
+      }
+    };
+
+    const handleFirstInteraction = () => {
+      if (hasResolvedPlayback) {
+        return;
+      }
+
+      attemptPlayback();
+    };
+
+    attemptPlayback();
+
+    window.addEventListener('pointerdown', handleFirstInteraction);
+    window.addEventListener('keydown', handleFirstInteraction);
+
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+      window.removeEventListener('keydown', handleFirstInteraction);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    clearTransitionTimeouts();
   }, []);
 
   useEffect(() => {
@@ -258,6 +394,7 @@ export default function App() {
     const syncRouteWithHash = () => {
       const route = parseHashRoute(window.location.hash);
       const nextSignature = routeSignature(route);
+      const isModalOnlyChange = !shouldAnimateRouteTransition(activeRouteRef.current, route);
 
       if (!hasInitializedRoute.current) {
         applyRouteState(route);
@@ -272,14 +409,23 @@ export default function App() {
         return;
       }
 
-      if (!shouldAnimateRouteTransition(activeRouteRef.current, route)) {
-        clearTransitionTimeouts();
+      if (skipNextRouteTransitionRef.current) {
+        skipNextRouteTransitionRef.current = false;
+        clearSceneTransitionTimeouts();
         setTransitionPhase('idle');
         applyRouteState(route);
         return;
       }
 
-      clearTransitionTimeouts();
+      if (isModalOnlyChange) {
+        clearSceneTransitionTimeouts();
+        setTransitionPhase('idle');
+        applyRouteState(route);
+        return;
+      }
+
+      clearSceneTransitionTimeouts();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setTransitionPhase('exiting');
 
       exitTimeoutRef.current = setTimeout(() => {
@@ -299,7 +445,7 @@ export default function App() {
     window.addEventListener('hashchange', syncRouteWithHash);
 
     return () => {
-      clearTransitionTimeouts();
+      clearSceneTransitionTimeouts();
       window.removeEventListener('hashchange', syncRouteWithHash);
     };
   }, [warriorsData]);
@@ -318,28 +464,71 @@ export default function App() {
 
   // --- VIEWS ---
 
+  const startWarriorWelcome = () => {
+    if (isWelcomingWarrior) {
+      return;
+    }
+
+    setIsWelcomingWarrior(true);
+    setWelcomePhase('entering');
+    setWarriorEntry('');
+    skipNextRouteTransitionRef.current = true;
+
+    clearSceneTransitionTimeouts();
+    clearWelcomeTimeouts();
+
+    welcomeRouteTimeoutRef.current = setTimeout(() => {
+      navigateToTribes();
+      welcomeRouteTimeoutRef.current = null;
+    }, WELCOME_HOLD_DURATION_MS);
+
+    welcomeRevealTimeoutRef.current = setTimeout(() => {
+      setWelcomePhase('revealing');
+      welcomeRevealTimeoutRef.current = null;
+    }, WELCOME_HOLD_DURATION_MS);
+
+    welcomeCompleteTimeoutRef.current = setTimeout(() => {
+      setIsWelcomingWarrior(false);
+      setWelcomePhase('idle');
+      welcomeCompleteTimeoutRef.current = null;
+    }, WELCOME_HOLD_DURATION_MS + WELCOME_REVEAL_DURATION_MS);
+  };
+
   const renderLanding = () => (
     <div className={`flex flex-col items-center justify-center min-h-screen transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-      <div className="relative group cursor-pointer" onClick={navigateToTribes}>
+      <div className="relative">
         {/* Glowing effect behind the rune */}
-        <div className="absolute inset-0 bg-red-900 rounded-full blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-700 animate-pulse"></div>
+        <div className="absolute inset-0 bg-red-900 rounded-full blur-3xl opacity-20 transition-opacity duration-700 animate-pulse"></div>
         
-        <h1 className="text-[12rem] md:text-[18rem] leading-none text-zinc-200 font-serif text-center relative z-10 drop-shadow-[0_0_15px_rgba(139,0,0,0.5)] group-hover:text-red-700 transition-colors duration-500">
+        <h1 className="text-[12rem] md:text-[18rem] leading-none text-zinc-200 font-serif text-center relative z-10 drop-shadow-[0_0_15px_rgba(139,0,0,0.5)] transition-colors duration-500">
           ᚢ
         </h1>
       </div>
       
       <div className="mt-8 text-center z-10 space-y-4">
         <h2 className="text-3xl md:text-5xl font-bold tracking-[0.2em] text-zinc-100 uppercase">EWC 2025</h2>
-        <p className="text-zinc-500 tracking-widest text-sm md:text-base italic">"Act in spite of fear."</p>
+        <p className="text-zinc-500 tracking-widest text-sm md:text-base italic">Enlighten Warrior Training Camp 2025</p>
       </div>
 
-      <button 
-        onClick={navigateToTribes}
-        className="mt-16 z-10 flex items-center gap-2 px-8 py-3 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-800 hover:bg-red-950/20 transition-all duration-300 rounded uppercase tracking-widest text-sm"
-      >
-        Enter The Yearbook <ChevronRight size={16} />
-      </button>
+      <div className="mt-14 z-10 w-full max-w-md space-y-4 px-6">
+        <input
+          type="text"
+          value={warriorEntry}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+
+            setWarriorEntry(nextValue);
+
+            if (hasWarriorPhrase(nextValue)) {
+              startWarriorWelcome();
+            }
+          }}
+          autoComplete="off"
+          spellCheck="false"
+          placeholder="I am a Warrior, I..."
+          className={`w-full rounded-xl border px-5 py-4 text-center text-sm uppercase tracking-[0.24em] text-zinc-100 outline-none transition-all duration-500 placeholder:text-zinc-600 ${hasWarriorPhrase(warriorEntry) ? 'border-red-600 bg-red-950/20 shadow-[0_0_0_1px_rgba(153,27,27,0.65),0_0_28px_rgba(127,29,29,0.2)]' : 'border-zinc-800 bg-zinc-950/90'} focus:border-red-700 focus:bg-zinc-950 focus:shadow-[0_0_0_1px_rgba(127,29,29,0.7)]`}
+        />
+      </div>
     </div>
   );
 
@@ -360,7 +549,7 @@ export default function App() {
 
       {!isFetchingWarriors && !fetchError && (
         <>
-          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 xl:hidden">
+          <div className="mx-auto grid max-w-6xl grid-cols-2 gap-3 md:gap-6 xl:hidden">
             {tribes.map((tribe) => {
               const count = warriorsData.filter(w => w.tribe === tribe).length;
               const { icon: TribeIcon, accentClass } = getTribeVisual(tribe);
@@ -369,17 +558,17 @@ export default function App() {
                 <div 
                   key={tribe}
                   onClick={() => navigateToTribe(tribe)}
-                  className="group relative min-h-[17rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)]"
+                  className="group relative min-h-[12.5rem] rounded-2xl border border-zinc-800 bg-zinc-900/95 p-4 sm:min-h-[17rem] sm:p-8 cursor-pointer overflow-hidden transition-all duration-500 hover:-translate-y-2 hover:border-red-800 hover:shadow-[0_24px_60px_rgba(80,12,12,0.22)]"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-red-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-red-500/50 to-transparent opacity-60"></div>
                   <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-red-950/20 blur-3xl transition-opacity duration-500 group-hover:opacity-100"></div>
                   
-                  <div className="relative z-10 flex h-full flex-col items-center justify-center text-center space-y-4">
-                    <TribeIcon className={`h-12 w-12 text-zinc-700 transition-colors duration-500 ${accentClass}`} />
-                    <h3 className="text-2xl font-bold text-zinc-200 tracking-wider uppercase">{tribe}</h3>
+                  <div className="relative z-10 flex h-full flex-col items-center justify-center text-center space-y-3 sm:space-y-4">
+                    <TribeIcon className={`h-9 w-9 text-zinc-700 transition-colors duration-500 sm:h-12 sm:w-12 ${accentClass}`} />
+                    <h3 className="text-base font-bold text-zinc-200 tracking-wide uppercase sm:text-2xl sm:tracking-wider">{tribe}</h3>
                     <p className="text-zinc-500 tracking-[0.3em] text-xs uppercase">{count} Warriors</p>
-                    <div className="pt-3 text-[0.65rem] uppercase tracking-[0.45em] text-zinc-600 transition-colors duration-500 group-hover:text-zinc-400">
+                    <div className="pt-1 text-[0.55rem] uppercase tracking-[0.28em] text-zinc-600 transition-colors duration-500 group-hover:text-zinc-400 sm:pt-3 sm:text-[0.65rem] sm:tracking-[0.45em]">
                       Enter Tribe
                     </div>
                   </div>
@@ -447,7 +636,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-24">
+        <div className="grid grid-cols-3 gap-3 pb-24 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
           {tribeWarriors.map((warrior) => (
             <div 
               key={warrior.id}
@@ -462,18 +651,18 @@ export default function App() {
                   onError={() => handleWarriorImageError(warrior.id)}
                   referrerPolicy="no-referrer"
                   loading="lazy"
-                  className={`w-full h-full transition-all duration-700 ${isFallbackPhoto(warrior) ? 'object-contain p-10 bg-black/90 filter-none group-hover:scale-105' : 'object-cover filter grayscale-[35%] saturate-75 brightness-90 group-hover:grayscale-0 group-hover:saturate-100 group-hover:brightness-100 group-hover:scale-105'}`}
+                  className={`w-full h-full transition-all duration-700 ${isFallbackPhoto(warrior) ? 'object-contain p-4 bg-black/90 filter-none sm:p-10 group-hover:scale-105' : 'object-cover group-hover:scale-105 md:filter md:grayscale-[35%] md:saturate-75 md:brightness-90 md:group-hover:grayscale-0 md:group-hover:saturate-100 md:group-hover:brightness-100'}`}
                 />
-                <div className="absolute top-4 right-4 z-20 bg-zinc-950/80 backdrop-blur border border-zinc-700 px-3 py-1 rounded text-xs font-mono text-zinc-300">
+                <div className="absolute right-2 top-2 z-20 rounded bg-zinc-950/80 px-2 py-1 text-[0.65rem] font-mono text-zinc-300 backdrop-blur border border-zinc-700 sm:right-4 sm:top-4 sm:px-3 sm:text-xs">
                   #{warrior.sequenceNumber}
                 </div>
               </div>
               
-              <div className="relative min-h-[9.5rem] p-5 border-t border-zinc-800 overflow-hidden">
-                <h3 className="text-xl font-bold text-zinc-100 uppercase tracking-wide">{warrior.fullName}</h3>
-                <p className="text-red-600/80 text-sm tracking-widest uppercase mt-1">"{warrior.warriorName}"</p>
-                <div className="absolute inset-x-5 bottom-5 rounded-md bg-zinc-900/96 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-400 pointer-events-none">
-                  <p className="text-zinc-400 text-sm line-clamp-2 italic">"{warrior.biggestLearning}"</p>
+              <div className="relative min-h-[5.5rem] border-t border-zinc-800 p-2 overflow-hidden sm:min-h-[9.5rem] sm:p-5">
+                <h3 className="line-clamp-2 text-[0.72rem] font-bold text-zinc-100 uppercase tracking-wide sm:text-xl">{warrior.fullName}</h3>
+                <p className="mt-1 text-[0.58rem] tracking-[0.16em] text-red-600/80 uppercase sm:text-sm sm:tracking-widest">"{warrior.warriorName}"</p>
+                <div className="absolute inset-x-2 bottom-2 rounded-md bg-zinc-900/96 opacity-0 translate-y-3 transition-all duration-400 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 sm:inset-x-5 sm:bottom-5">
+                  <p className="text-[0.65rem] italic text-zinc-400 line-clamp-2 sm:text-sm">"{warrior.biggestLearning}"</p>
                 </div>
               </div>
             </div>
@@ -485,6 +674,16 @@ export default function App() {
 
   const renderModal = () => {
     if (!selectedWarrior) return null;
+
+    const supportItems = normalizeDetailList(
+      selectedWarrior.supportNeededList,
+      selectedWarrior.supportNeeded
+    );
+    const topGoalItems = normalizeDetailList(
+      selectedWarrior.topGoalsList,
+      selectedWarrior.topGoals
+    );
+    const supportDetails = selectedWarrior.supportDetails?.trim();
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
@@ -559,6 +758,53 @@ export default function App() {
               )}
             </div>
 
+            {(supportItems.length > 0 || supportDetails) && (
+              <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-950/70 p-5">
+                <span className="text-zinc-500 flex items-center gap-2 text-xs uppercase tracking-widest">
+                  <Shield size={14} /> Support Needed
+                </span>
+
+                {supportItems.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {supportItems.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-red-900/45 bg-red-950/30 px-3 py-1 text-[0.65rem] uppercase tracking-[0.16em] text-zinc-200 sm:text-[0.7rem]"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {supportDetails && (
+                  <p className="text-sm leading-relaxed text-zinc-400">{supportDetails}</p>
+                )}
+              </div>
+            )}
+
+            {topGoalItems.length > 0 && (
+              <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-950/70 p-5">
+                <span className="text-zinc-500 flex items-center gap-2 text-xs uppercase tracking-widest">
+                  <Crown size={14} /> Top Goals
+                </span>
+
+                <div className="space-y-3">
+                  {topGoalItems.map((goal, index) => (
+                    <div
+                      key={`${selectedWarrior.id}-goal-${index}`}
+                      className="flex items-start gap-3 rounded-lg border border-zinc-800/80 bg-zinc-900/75 px-4 py-3"
+                    >
+                      <span className="mt-0.5 text-xs font-semibold tracking-[0.2em] text-red-400">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <p className="text-sm leading-relaxed text-zinc-300">{goal}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-4">
               {selectedWarrior.funFact && (
                 <div>
@@ -609,6 +855,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-300 font-sans selection:bg-red-900/50 selection:text-white overflow-x-hidden">
+      <audio ref={backgroundAudioRef} src="/background.mp3" autoPlay loop preload="auto" className="hidden" />
+
       {/* Top Navbar Component (appears after landing) */}
       {view !== 'landing' && (
         <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-900 px-6 py-4 flex justify-between items-center">
@@ -630,6 +878,28 @@ export default function App() {
         {view === 'tribes' && renderTribes()}
         {view === 'roster' && renderRoster()}
       </main>
+
+      <button
+        type="button"
+        onClick={scrollToTop}
+        aria-label="Scroll to top"
+        className={`fixed right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-red-700/80 bg-zinc-900/95 text-zinc-50 shadow-[0_18px_40px_rgba(120,18,18,0.35)] ring-1 ring-red-500/20 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-red-500 hover:bg-red-950/90 hover:text-white hover:shadow-[0_22px_44px_rgba(140,24,24,0.45)] sm:right-6 ${showScrollTop ? 'pointer-events-auto opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-4'}`}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+      >
+        <ChevronRight size={20} className="-rotate-90" />
+      </button>
+
+      {isWelcomingWarrior && (
+        <div className={`fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-zinc-950 backdrop-blur-md ${welcomePhase === 'revealing' ? 'animate-welcome-reveal' : 'animate-welcome-screen'}`}>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(92,16,16,0.18),rgba(10,10,10,0.98)_42%,rgba(0,0,0,1)_100%)]"></div>
+          <div className={`relative flex flex-col items-center justify-center gap-4 px-8 text-center ${welcomePhase === 'revealing' ? 'animate-welcome-content-out' : 'animate-welcome-content'}`}>
+            <span className="text-[5.5rem] leading-none text-stone-100/80 drop-shadow-[0_0_10px_rgba(254,242,242,0.16)]">ᚢ</span>
+            <div className="h-px w-24 bg-gradient-to-r from-transparent via-red-200/35 to-transparent"></div>
+            <p className="text-[0.58rem] font-semibold uppercase tracking-[0.7em] text-stone-200/50">Welcome</p>
+            <h3 className="text-2xl font-bold uppercase tracking-[0.24em] text-zinc-100 sm:text-3xl">Welcome Enlighten Warrior</h3>
+          </div>
+        </div>
+      )}
 
       {renderModal()}
 
@@ -710,6 +980,23 @@ export default function App() {
           45% { transform: translateY(0) scale(1.005); opacity: 0.72; }
           100% { transform: translateY(0) scale(1); opacity: 0.5; }
         }
+        @keyframes welcome-screen {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        @keyframes welcome-content {
+          0% { transform: translateY(16px) scale(0.985); opacity: 0; }
+          35% { transform: translateY(0) scale(1.01); opacity: 1; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes welcome-reveal {
+          0% { transform: translateY(0); opacity: 1; }
+          100% { transform: translateY(100%); opacity: 1; }
+        }
+        @keyframes welcome-content-out {
+          0% { transform: translateY(0) scale(1); opacity: 1; }
+          100% { transform: translateY(56px) scale(0.985); opacity: 0; }
+        }
         .animate-scene-exit {
           animation: scene-exit ${EXIT_DURATION_MS}ms cubic-bezier(0.45, 0, 0.2, 1) forwards;
         }
@@ -733,6 +1020,18 @@ export default function App() {
         }
         .animate-warrior-rune {
           animation: warrior-rune ${ENTER_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .animate-welcome-screen {
+          animation: welcome-screen 360ms ease-out forwards;
+        }
+        .animate-welcome-content {
+          animation: welcome-content 680ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .animate-welcome-reveal {
+          animation: welcome-reveal ${WELCOME_REVEAL_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .animate-welcome-content-out {
+          animation: welcome-content-out ${WELCOME_REVEAL_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
         }
       `}} />
     </div>
