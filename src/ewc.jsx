@@ -313,7 +313,7 @@ export default function App() {
       return undefined;
     }
 
-    audioElement.volume = 0;
+    audioElement.volume = 0.5;
 
     let hasResolvedPlayback = false;
 
