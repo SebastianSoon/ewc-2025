@@ -71,6 +71,7 @@ const WARRIOR_PHRASES = [
   'act in spite of fear',
   'act inspite of fear',
   'am willing to do whatever it takes',
+  'do whatever it takes',
   'do everything at one hundred percent',
   'one hundred percent',
   'am willing to do what\'s hard',
